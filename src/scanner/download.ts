@@ -127,7 +127,10 @@ export function getTargetPlatformForOptions(
 
   const architecture = targetArchitecture ?? arch();
   if (targetOS === "alpine") {
-    return architecture === "x64" ? "alpine-x64" : "alpine-arm64";
+    if (architecture === "x64") {
+      return "alpine-x64";
+    }
+    return architecture === "arm64" ? "alpine-arm64" : "universal";
   }
 
   const os = targetOS
