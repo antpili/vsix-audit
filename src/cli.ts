@@ -15,7 +15,10 @@ import { clearCache, getCacheDir, getCachedVersions, listCached } from "./scanne
 import { extractCapabilities, type Capabilities } from "./scanner/capabilities.js";
 import {
   downloadExtension,
+  getTargetPlatformForOptions,
   parseExtensionId,
+  type TargetArchitecture,
+  type TargetOS,
   type ParsedExtensionId,
   type TargetPlatform,
 } from "./scanner/download.js";
@@ -64,6 +67,8 @@ interface CliDownloadOptions {
   noCache?: boolean;
   force?: boolean;
   targetPlatform?: TargetPlatform;
+  os?: TargetOS;
+  architecture?: TargetArchitecture;
 }
 
 export type CliTarget =
@@ -397,17 +402,32 @@ cli
     new Option("--target-platform <platform>", "Target platform (defaults to the current machine)")
       .choices(TARGET_PLATFORMS),
   )
+  .addOption(
+    new Option("--os <os>", "Target operating system").choices(["linux", "alpine", "windows", "macos"]),
+  )
+  .addOption(
+    new Option("--architecture <architecture>", "Target architecture").choices(["x64", "arm64"]),
+  )
   .action(async (extensionId: string, options: CliDownloadOptions) => {
     try {
       const useCache = options.noCache !== true;
       const forceDownload = options.force === true;
+      if (options.targetPlatform && (options.os || options.architecture)) {
+        throw new Error("--target-platform cannot be combined with --os or --architecture");
+      }
 
       console.log(pc.cyan("Downloading:"), extensionId);
 
       const downloadOptions = {
         useCache,
         forceDownload,
-        ...(options.targetPlatform ? { targetPlatform: options.targetPlatform } : {}),
+        ...(options.targetPlatform
+          ? { targetPlatform: options.targetPlatform }
+          : options.os || options.architecture
+            ? {
+                targetPlatform: getTargetPlatformForOptions(options.os, options.architecture),
+              }
+            : {}),
         ...(options.output ? { destDir: options.output } : {}),
       };
       const result = await downloadExtension(extensionId, downloadOptions);

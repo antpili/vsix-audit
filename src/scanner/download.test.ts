@@ -4,6 +4,7 @@ import {
   getMarketplaceDownloadUrl,
   getOpenVSXDownloadUrl,
   getTargetPlatform,
+  getTargetPlatformForOptions,
   parseExtensionId,
 } from "./download.js";
 
@@ -214,6 +215,18 @@ describe("getTargetPlatform", () => {
     ["freebsd", "x64", false, "universal"],
   ] as const)("maps %s/%s (musl=%s) to %s", (os, architecture, isMusl, expected) => {
     expect(getTargetPlatform(os, architecture, isMusl)).toBe(expected);
+  });
+});
+
+describe("getTargetPlatformForOptions", () => {
+  it.each([
+    ["linux", "arm64", "linux-arm64"],
+    ["linux", "x64", "linux-x64"],
+    ["alpine", "arm64", "alpine-arm64"],
+    ["windows", "arm64", "win32-arm64"],
+    ["macos", "x64", "darwin-x64"],
+  ] as const)("maps --os %s --architecture %s to %s", (os, architecture, expected) => {
+    expect(getTargetPlatformForOptions(os, architecture)).toBe(expected);
   });
 });
 

@@ -37,6 +37,9 @@ export type TargetPlatform =
   | "darwin-arm64"
   | "universal";
 
+export type TargetOS = "linux" | "alpine" | "windows" | "macos";
+export type TargetArchitecture = "x64" | "arm64";
+
 export interface DownloadResult {
   path: string;
   metadata: ExtensionMetadata;
@@ -97,20 +100,40 @@ export function getTargetPlatform(
 }
 
 function getDefaultTargetPlatform(): TargetPlatform {
-  let isMusl = false;
-  if (platform() === "linux") {
-    try {
-      const report = process.report?.getReport() as
-        | { header?: { glibcVersionRuntime?: string } }
-        | undefined;
-      if (report?.header) {
-        isMusl = report.header.glibcVersionRuntime === undefined;
-      }
-    } catch {
-      // If runtime details are unavailable, assume glibc Linux.
-    }
+  return getTargetPlatform(platform(), arch(), isMuslLinux());
+}
+
+function isMuslLinux(): boolean {
+  if (platform() !== "linux") {
+    return false;
   }
-  return getTargetPlatform(platform(), arch(), isMusl);
+  try {
+    const report = process.report?.getReport() as
+      | { header?: { glibcVersionRuntime?: string } }
+      | undefined;
+    return report?.header !== undefined && report.header.glibcVersionRuntime === undefined;
+  } catch {
+    return false;
+  }
+}
+
+export function getTargetPlatformForOptions(
+  targetOS?: TargetOS,
+  targetArchitecture?: TargetArchitecture,
+): TargetPlatform {
+  if (!targetOS && !targetArchitecture) {
+    return getDefaultTargetPlatform();
+  }
+
+  const architecture = targetArchitecture ?? arch();
+  if (targetOS === "alpine") {
+    return architecture === "x64" ? "alpine-x64" : "alpine-arm64";
+  }
+
+  const os = targetOS
+    ? { linux: "linux", windows: "win32", macos: "darwin" }[targetOS]
+    : platform();
+  return getTargetPlatform(os as NodeJS.Platform, architecture, !targetOS && isMuslLinux());
 }
 
 interface OpenVSXExtension {
