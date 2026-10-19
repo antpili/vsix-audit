@@ -14,6 +14,7 @@ export interface CachedExtension {
   path: string;
   size: number;
   cachedAt: Date;
+  targetPlatform?: string;
 }
 
 /**
@@ -52,10 +53,11 @@ export function getCachedPath(
   publisher: string,
   name: string,
   version: string,
+  targetPlatform?: string,
 ): string {
   const cacheDir = getCacheDir();
   const filename = `${publisher}.${name}-${version}.vsix`;
-  return join(cacheDir, registry, filename);
+  return join(cacheDir, registry, ...(targetPlatform ? [targetPlatform] : []), filename);
 }
 
 /**
@@ -86,8 +88,9 @@ export async function isCached(
   publisher: string,
   name: string,
   version: string,
+  targetPlatform?: string,
 ): Promise<boolean> {
-  const cachedPath = getCachedPath(registry, publisher, name, version);
+  const cachedPath = getCachedPath(registry, publisher, name, version, targetPlatform);
   try {
     await stat(cachedPath);
     return true;
@@ -108,35 +111,57 @@ export async function listCached(): Promise<CachedExtension[]> {
   for (const registry of registries) {
     const registryDir = join(cacheDir, registry);
 
-    let files: string[];
+    let entries: import("node:fs").Dirent[];
     try {
-      files = await readdir(registryDir);
+      entries = await readdir(registryDir, { withFileTypes: true });
     } catch {
       // Directory doesn't exist
       continue;
     }
 
+    const files: Array<{ filename: string; path: string; targetPlatform?: string }> = [];
+    for (const entry of entries) {
+      if (entry.isFile()) {
+        files.push({ filename: entry.name, path: join(registryDir, entry.name) });
+      } else if (entry.isDirectory()) {
+        const targetPlatform = entry.name;
+        let platformFiles: string[];
+        try {
+          platformFiles = await readdir(join(registryDir, targetPlatform));
+        } catch {
+          continue;
+        }
+        for (const filename of platformFiles) {
+          files.push({
+            filename,
+            path: join(registryDir, targetPlatform, filename),
+            targetPlatform,
+          });
+        }
+      }
+    }
+
     for (const file of files) {
-      if (!file.endsWith(".vsix")) {
+      if (!file.filename.endsWith(".vsix")) {
         continue;
       }
 
-      const parsed = parseVsixFilename(file);
+      const parsed = parseVsixFilename(file.filename);
       if (!parsed) {
         continue;
       }
 
-      const filePath = join(registryDir, file);
       try {
-        const fileStat = await stat(filePath);
+        const fileStat = await stat(file.path);
         extensions.push({
           registry,
           publisher: parsed.publisher,
           name: parsed.name,
           version: parsed.version,
-          path: filePath,
+          path: file.path,
           size: fileStat.size,
           cachedAt: fileStat.mtime,
+          ...(file.targetPlatform ? { targetPlatform: file.targetPlatform } : {}),
         });
       } catch {
         // File was removed between readdir and stat

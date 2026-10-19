@@ -1,5 +1,6 @@
 import { createWriteStream } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
+import { arch, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
@@ -22,7 +23,19 @@ export interface DownloadOptions {
   destDir?: string;
   useCache?: boolean;
   forceDownload?: boolean;
+  targetPlatform?: TargetPlatform;
 }
+
+export type TargetPlatform =
+  | "win32-x64"
+  | "win32-arm64"
+  | "linux-x64"
+  | "linux-arm64"
+  | "alpine-x64"
+  | "alpine-arm64"
+  | "darwin-x64"
+  | "darwin-arm64"
+  | "universal";
 
 export interface DownloadResult {
   path: string;
@@ -56,6 +69,49 @@ const GALLERY_API_VERSION = "7.1-preview.1";
 const OPENVSX_API_URL = "https://open-vsx.org/api";
 
 const CURSOR_API_URL = "https://marketplace.cursorapi.com/_apis/public/gallery/extensionquery";
+
+export function getTargetPlatform(
+  os: NodeJS.Platform,
+  architecture: string,
+  isMusl = false,
+): TargetPlatform {
+  if (os === "win32" && architecture === "x64") {
+    return "win32-x64";
+  }
+  if (os === "win32" && architecture === "arm64") {
+    return "win32-arm64";
+  }
+  if (os === "darwin" && architecture === "x64") {
+    return "darwin-x64";
+  }
+  if (os === "darwin" && architecture === "arm64") {
+    return "darwin-arm64";
+  }
+  if (os === "linux" && architecture === "x64") {
+    return isMusl ? "alpine-x64" : "linux-x64";
+  }
+  if (os === "linux" && architecture === "arm64") {
+    return isMusl ? "alpine-arm64" : "linux-arm64";
+  }
+  return "universal";
+}
+
+function getDefaultTargetPlatform(): TargetPlatform {
+  let isMusl = false;
+  if (platform() === "linux") {
+    try {
+      const report = process.report?.getReport() as
+        | { header?: { glibcVersionRuntime?: string } }
+        | undefined;
+      if (report?.header) {
+        isMusl = report.header.glibcVersionRuntime === undefined;
+      }
+    } catch {
+      // If runtime details are unavailable, assume glibc Linux.
+    }
+  }
+  return getTargetPlatform(platform(), arch(), isMusl);
+}
 
 interface OpenVSXExtension {
   namespace: string;
@@ -382,8 +438,10 @@ export function getMarketplaceDownloadUrl(
   publisher: string,
   name: string,
   version: string,
+  targetPlatform?: TargetPlatform,
 ): string {
-  return `https://${publisher}.gallery.vsassets.io/_apis/public/gallery/publisher/${publisher}/extension/${name}/${version}/assetbyname/Microsoft.VisualStudio.Services.VSIXPackage`;
+  const url = `https://${publisher}.gallery.vsassets.io/_apis/public/gallery/publisher/${publisher}/extension/${name}/${version}/assetbyname/Microsoft.VisualStudio.Services.VSIXPackage`;
+  return targetPlatform ? `${url}?targetPlatform=${encodeURIComponent(targetPlatform)}` : url;
 }
 
 /**
@@ -460,6 +518,7 @@ export async function downloadVsix(
   version: string,
   destPath: string,
   registry: Registry = "marketplace",
+  targetPlatform?: TargetPlatform,
 ): Promise<void> {
   let url: string;
   if (registry === "openvsx") {
@@ -467,7 +526,7 @@ export async function downloadVsix(
   } else if (registry === "cursor") {
     url = getCursorDownloadUrl(publisher, name, version);
   } else {
-    url = getMarketplaceDownloadUrl(publisher, name, version);
+    url = getMarketplaceDownloadUrl(publisher, name, version, targetPlatform);
   }
 
   await downloadVsixFromUrl(url, destPath);
@@ -488,6 +547,8 @@ export async function downloadExtension(
   const { publisher, name, version, registry } = parseExtensionId(extensionId);
   const useCache = options?.useCache !== false;
   const forceDownload = options?.forceDownload === true;
+  const targetPlatform =
+    registry === "marketplace" ? (options?.targetPlatform ?? getDefaultTargetPlatform()) : undefined;
 
   // Query the appropriate registry for metadata
   let metadata: ExtensionMetadata;
@@ -501,7 +562,8 @@ export async function downloadExtension(
 
   // If destDir is explicitly provided, download directly there (bypasses cache)
   if (options?.destDir) {
-    const filename = `${metadata.publisher}.${metadata.name}-${metadata.version}.vsix`;
+    const platformSuffix = targetPlatform ? `-${targetPlatform}` : "";
+    const filename = `${metadata.publisher}.${metadata.name}-${metadata.version}${platformSuffix}.vsix`;
     const destPath = join(options.destDir, filename);
 
     // Check cache first if enabled
@@ -511,8 +573,15 @@ export async function downloadExtension(
         metadata.publisher,
         metadata.name,
         metadata.version,
+        targetPlatform,
       );
-      const cached = await isCached(registry, metadata.publisher, metadata.name, metadata.version);
+      const cached = await isCached(
+        registry,
+        metadata.publisher,
+        metadata.name,
+        metadata.version,
+        targetPlatform,
+      );
 
       if (cached) {
         // Copy from cache to destination
@@ -523,16 +592,35 @@ export async function downloadExtension(
     }
 
     // Download fresh
-    await downloadVsix(metadata.publisher, metadata.name, metadata.version, destPath, registry);
+    await downloadVsix(
+      metadata.publisher,
+      metadata.name,
+      metadata.version,
+      destPath,
+      registry,
+      targetPlatform,
+    );
     return { path: destPath, metadata, fromCache: false };
   }
 
   // Use cache directory
-  const cachedPath = getCachedPath(registry, metadata.publisher, metadata.name, metadata.version);
+  const cachedPath = getCachedPath(
+    registry,
+    metadata.publisher,
+    metadata.name,
+    metadata.version,
+    targetPlatform,
+  );
 
   // Check if already cached
   if (useCache && !forceDownload) {
-    const cached = await isCached(registry, metadata.publisher, metadata.name, metadata.version);
+    const cached = await isCached(
+      registry,
+      metadata.publisher,
+      metadata.name,
+      metadata.version,
+      targetPlatform,
+    );
     if (cached) {
       return { path: cachedPath, metadata, fromCache: true };
     }
@@ -541,7 +629,14 @@ export async function downloadExtension(
   // Download to cache, evicting stale entries first
   await ensureCacheDir(registry);
   await evictStaleEntries();
-  await downloadVsix(metadata.publisher, metadata.name, metadata.version, cachedPath, registry);
+  await downloadVsix(
+    metadata.publisher,
+    metadata.name,
+    metadata.version,
+    cachedPath,
+    registry,
+    targetPlatform,
+  );
 
   return { path: cachedPath, metadata, fromCache: false };
 }
