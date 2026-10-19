@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename } from "node:path";
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import pc from "picocolors";
 import {
   formatBytes,
@@ -13,7 +13,12 @@ import {
 } from "./formatters.js";
 import { clearCache, getCacheDir, getCachedVersions, listCached } from "./scanner/cache.js";
 import { extractCapabilities, type Capabilities } from "./scanner/capabilities.js";
-import { downloadExtension, parseExtensionId, type ParsedExtensionId } from "./scanner/download.js";
+import {
+  downloadExtension,
+  parseExtensionId,
+  type ParsedExtensionId,
+  type TargetPlatform,
+} from "./scanner/download.js";
 import {
   MODULE_NAMES,
   scanDirectory,
@@ -29,6 +34,17 @@ const { version: VERSION } = require("../package.json") as {
 };
 
 const REGISTRIES: Registry[] = ["marketplace", "openvsx", "cursor"];
+const TARGET_PLATFORMS: TargetPlatform[] = [
+  "win32-x64",
+  "win32-arm64",
+  "linux-x64",
+  "linux-arm64",
+  "alpine-x64",
+  "alpine-arm64",
+  "darwin-x64",
+  "darwin-arm64",
+  "universal",
+];
 
 interface CliScanOptions extends Omit<ScanOptions, "intel"> {
   allRegistries?: boolean;
@@ -47,6 +63,7 @@ interface CliDownloadOptions {
   output?: string;
   noCache?: boolean;
   force?: boolean;
+  targetPlatform?: TargetPlatform;
 }
 
 export type CliTarget =
@@ -376,6 +393,10 @@ cli
   .option("-o, --output <dir>", "Also copy to this directory (in addition to cache)")
   .option("--no-cache", "Bypass cache, download fresh")
   .option("--force", "Re-download even if cached")
+  .addOption(
+    new Option("--target-platform <platform>", "Target platform (defaults to the current machine)")
+      .choices(TARGET_PLATFORMS),
+  )
   .action(async (extensionId: string, options: CliDownloadOptions) => {
     try {
       const useCache = options.noCache !== true;
@@ -386,6 +407,7 @@ cli
       const downloadOptions = {
         useCache,
         forceDownload,
+        ...(options.targetPlatform ? { targetPlatform: options.targetPlatform } : {}),
         ...(options.output ? { destDir: options.output } : {}),
       };
       const result = await downloadExtension(extensionId, downloadOptions);

@@ -3,6 +3,7 @@ import {
   getCursorDownloadUrl,
   getMarketplaceDownloadUrl,
   getOpenVSXDownloadUrl,
+  getTargetPlatform,
   parseExtensionId,
 } from "./download.js";
 
@@ -189,6 +190,30 @@ describe("getMarketplaceDownloadUrl", () => {
     expect(url).toBe(
       "https://ms-python.gallery.vsassets.io/_apis/public/gallery/publisher/ms-python/extension/python/2024.1.0/assetbyname/Microsoft.VisualStudio.Services.VSIXPackage",
     );
+  });
+
+  it("requests a platform-specific Marketplace package", () => {
+    const url = getMarketplaceDownloadUrl("anthropic", "claude-code", "2.1.301", "win32-x64");
+
+    expect(url).toBe(
+      "https://anthropic.gallery.vsassets.io/_apis/public/gallery/publisher/anthropic/extension/claude-code/2.1.301/assetbyname/Microsoft.VisualStudio.Services.VSIXPackage?targetPlatform=win32-x64",
+    );
+  });
+});
+
+describe("getTargetPlatform", () => {
+  it.each([
+    ["win32", "x64", false, "win32-x64"],
+    ["win32", "arm64", false, "win32-arm64"],
+    ["darwin", "x64", false, "darwin-x64"],
+    ["darwin", "arm64", false, "darwin-arm64"],
+    ["linux", "x64", false, "linux-x64"],
+    ["linux", "arm64", false, "linux-arm64"],
+    ["linux", "x64", true, "alpine-x64"],
+    ["linux", "arm64", true, "alpine-arm64"],
+    ["freebsd", "x64", false, "universal"],
+  ] as const)("maps %s/%s (musl=%s) to %s", (os, architecture, isMusl, expected) => {
+    expect(getTargetPlatform(os, architecture, isMusl)).toBe(expected);
   });
 });
 
