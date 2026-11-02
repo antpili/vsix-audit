@@ -214,6 +214,24 @@ describe("built CLI smoke tests", () => {
     await rm(tempRoot, { recursive: true, force: true });
   });
 
+  it("rejects mixing --target-platform with --os or --architecture", async () => {
+    const result = await runCli([
+      "download",
+      "anthropic.claude-code",
+      "--target-platform",
+      "win32-x64",
+      "--os",
+      "linux",
+      "--architecture",
+      "arm64",
+    ]);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(
+      "--target-platform cannot be combined with --os or --architecture",
+    );
+  });
+
   it("returns exit code 0 and JSON for a clean extension", async () => {
     const result = await runCli([
       "scan",

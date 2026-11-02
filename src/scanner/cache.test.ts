@@ -74,6 +74,12 @@ describe("getCachedPath", () => {
     expect(path).toContain("ms-python.python-2024.1.0.vsix");
   });
 
+  it("uses a platform-specific cache directory when requested", () => {
+    const path = getCachedPath("marketplace", "ms-python", "python", "2024.1.0", "win32-x64");
+
+    expect(path).toContain(join("marketplace", "win32-x64", "ms-python.python-2024.1.0.vsix"));
+  });
+
   it("constructs correct path for openvsx extension", () => {
     const path = getCachedPath("openvsx", "redhat", "java", "1.0.0");
 
@@ -194,5 +200,28 @@ describe("cache with test files", () => {
       path: testVsix,
     });
     expect(cached[0]?.size).toBeGreaterThan(0);
+  });
+
+  it("lists platform-specific cached extensions", async () => {
+    const targetPath = getCachedPath(
+      "marketplace",
+      "test-pub",
+      "test-ext",
+      "1.0.0",
+      "win32-x64",
+    );
+    await mkdir(join(testCacheDir, "marketplace", "win32-x64"), { recursive: true });
+    await writeFile(targetPath, "platform-specific vsix");
+
+    const cached = await listCached();
+    expect(cached).toHaveLength(1);
+    expect(cached[0]).toMatchObject({
+      registry: "marketplace",
+      publisher: "test-pub",
+      name: "test-ext",
+      version: "1.0.0",
+      path: targetPath,
+      targetPlatform: "win32-x64",
+    });
   });
 });
